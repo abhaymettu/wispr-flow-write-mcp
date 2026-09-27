@@ -1,19 +1,20 @@
 {
-  "name": "wispr-flow-dictionary-mcp",
-  "version": "0.1.0",
-  "description": "MCP server that reads and writes your Wispr Flow personal dictionary",
+  "name": "wispr-flow-write-mcp",
+  "version": "0.2.0",
+  "description": "MCP server that writes to Wispr Flow: dictionary, snippets, styles, transforms, notes, todos, meetings, profile",
   "type": "module",
   "engines": {
     "node": ">=18"
   },
   "license": "MIT",
   "author": "Abhay Mettu",
-  "repository": "github:abhaymettu/wispr-flow-dictionary-mcp",
+  "repository": "github:abhaymettu/wispr-flow-write-mcp",
   "keywords": [
     "mcp",
     "wispr-flow",
     "dictation",
-    "dictionary"
+    "dictionary",
+    "snippets"
   ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.1",
