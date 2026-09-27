@@ -1,0 +1,8 @@
+node_modules/
+.DS_Store
+# Wispr Flow session files are never copied here, but guard against it anyway.
+session.json
+*.sqlite*
+# spec-kit scaffolding (specs/ is kept)
+.claude/
+.specify/
