@@ -42,7 +42,7 @@ npm install
 Claude Code:
 
 ```sh
-claude mcp add wispr-flow-dictionary -- node /absolute/path/to/wispr-flow-dictionary-mcp/index.js
+claude mcp add --scope user wispr-flow-dictionary -- node /absolute/path/to/wispr-flow-dictionary-mcp/index.js
 ```
 
 Claude Desktop, Cursor, or any other MCP client (JSON config):
@@ -61,6 +61,7 @@ Claude Desktop, Cursor, or any other MCP client (JSON config):
 ## Seeing changes in the app
 
 The desktop app syncs its dictionary when it starts, after any edit you make in the app, and when you press **Refresh** on the Dictionary page. It does not poll. After adding or removing words through this server, press Refresh on the Dictionary page (or restart Flow) to see them.
+
 ## Where the token comes from
 
 Nothing is hardcoded and nothing is stored by this server.
