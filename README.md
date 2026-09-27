@@ -100,10 +100,11 @@ Claude Desktop, Cursor, or any other MCP client (JSON config):
 
 This repo is also packaged as a Claude plugin (MCP server + setup skill).
 
-When the plugin is approved and listed in the Claude plugin directory, install it from the `/plugin` manager in Claude Code or Cowork (official marketplace `claude-plugins-official`), or from the CLI:
+When the plugin is approved and listed in the Claude plugin directory, install it from the community marketplace in Claude Code:
 
 ```sh
-claude plugin install wispr-flow-write@claude-plugins-official
+/plugin marketplace add anthropics/claude-plugins-community
+claude plugin install wispr-flow-write@claude-community
 ```
 
 The plugin ships disabled by default (`defaultEnabled: false`) because it connects to an external service; enable it with `claude plugin enable wispr-flow-write` or from `/plugin`. Dependencies install automatically on first start.
