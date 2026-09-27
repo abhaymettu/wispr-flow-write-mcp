@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "wispr-flow-write",
+  "displayName": "Wispr Flow Write",
+  "version": "0.2.0",
+  "description": "Write to Wispr Flow from Claude: personal dictionary, snippets, writing styles and polish instructions, custom transforms, scratchpad notes, todos, meeting titles and notes, profile name. Write companion to the official read-only Wispr Flow MCP.",
+  "author": {
+    "name": "Abhay Mettu",
+    "url": "https://github.com/abhaymettu"
+  },
+  "homepage": "https://github.com/abhaymettu/wispr-flow-write-mcp",
+  "repository": "https://github.com/abhaymettu/wispr-flow-write-mcp",
+  "license": "MIT",
+  "keywords": ["wispr-flow", "dictation", "dictionary", "snippets", "mcp"],
+  "defaultEnabled": false
+}

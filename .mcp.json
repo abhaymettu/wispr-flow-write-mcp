@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "wispr-flow-write": {
+      "command": "sh",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/launch.sh"]
+    }
+  }
+}

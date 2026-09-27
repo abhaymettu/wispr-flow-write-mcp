@@ -95,6 +95,26 @@ Claude Desktop, Cursor, or any other MCP client (JSON config):
 }
 ```
 
+
+## Install as a Claude plugin
+
+This repo is also packaged as a Claude plugin (MCP server + setup skill).
+
+When the plugin is approved and listed in the Claude plugin directory, install it from the `/plugin` manager in Claude Code or Cowork (official marketplace `claude-plugins-official`), or from the CLI:
+
+```sh
+claude plugin install wispr-flow-write@claude-plugins-official
+```
+
+The plugin ships disabled by default (`defaultEnabled: false`) because it connects to an external service; enable it with `claude plugin enable wispr-flow-write` or from `/plugin`. Dependencies install automatically on first start.
+
+To test the plugin layout locally from a clone:
+
+```sh
+claude plugin validate . --strict
+claude --plugin-dir .
+```
+
 ## Seeing changes in the app
 
 - **Dictionary and snippets**: the app syncs these when it starts, after an edit in the app, and when you press **Refresh** on the Dictionary page. It does not poll. Press Refresh or restart Flow.

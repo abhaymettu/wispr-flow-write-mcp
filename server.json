@@ -1,0 +1,21 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.abhaymettu/wispr-flow-write-mcp",
+  "title": "Wispr Flow Write (unofficial)",
+  "description": "Unofficial, not affiliated with Wispr. Writes to Wispr Flow: dictionary, snippets, notes, todos.",
+  "repository": {
+    "url": "https://github.com/abhaymettu/wispr-flow-write-mcp",
+    "source": "github"
+  },
+  "version": "0.2.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "wispr-flow-write-mcp",
+      "version": "0.2.0",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
