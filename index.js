@@ -5,38 +5,73 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
-const API = 'https://api.wisprflow.ai/api/v1';
-const SESSION = join(homedir(), 'Library/Application Support/Wispr Flow/session.json');
+// The env overrides exist so the test suite can point the server at a fake API.
+const API = process.env.WISPR_FLOW_API ?? 'https://api.wisprflow.ai/api/v1';
+const SESSION = process.env.WISPR_FLOW_SESSION ?? join(homedir(), 'Library/Application Support/Wispr Flow/session.json');
 const PERSONAL = '00000000-0000-0000-0000-000000000000';
+const OPEN_APP = 'Open the Wispr Flow app so it refreshes its session, then retry.';
 
 // The app keeps its Supabase session in plaintext here. Read it fresh each call and
 // never refresh it ourselves: refreshing rotates the refresh token and would sign the app out.
 function token() {
+  let file;
+  try {
+    file = JSON.parse(readFileSync(SESSION, 'utf8'));
+  } catch {
+    throw new Error(`No Wispr Flow session found at ${SESSION}. Install Wispr Flow and sign in.`);
+  }
   let session;
   try {
-    const file = JSON.parse(readFileSync(SESSION, 'utf8'));
     session = JSON.parse(file[Object.keys(file).find((k) => /^sb-.*-auth-token$/.test(k))]);
-  } catch {
-    throw new Error(`No Wispr Flow session found at ${SESSION}. Open Wispr Flow and sign in.`);
-  }
-  if (session.expires_at * 1000 < Date.now()) {
-    throw new Error('Wispr Flow session has expired. Open the Wispr Flow app so it refreshes its session, then retry.');
-  }
+  } catch {}
+  if (!session?.access_token) throw new Error('Wispr Flow is signed out. Open the app and sign in, then retry.');
+  const ago = Math.ceil((Date.now() - session.expires_at * 1000) / 60000);
+  if (ago > 0) throw new Error(`Wispr Flow session expired ${ago} min ago. ${OPEN_APP}`);
   return session.access_token;
 }
 
+// One retry, for the cases a retry can fix: a network blip or gateway error, and a 401 after
+// the app has rotated its token since we read it. Every write is keyed by item id or replaces
+// a whole record, so resending one the server already applied changes nothing.
 async function api(method, path, body) {
-  const res = await fetch(API + path, {
-    method,
-    headers: { Authorization: token(), 'Content-Type': 'application/json' }, // raw token, no "Bearer"
-    body: body && JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`Wispr Flow API ${method} ${path} failed: ${res.status} ${await res.text()}`);
-  return res.status === 204 ? null : res.json();
+  for (let attempt = 1; ; attempt++) {
+    const auth = token();
+    const res = await fetch(API + path, {
+      method,
+      headers: { Authorization: auth, 'Content-Type': 'application/json' }, // raw token, no "Bearer"
+      body: body && JSON.stringify(body),
+      signal: AbortSignal.timeout(30000),
+    }).catch((e) => new Error(`Could not reach Wispr Flow (${method} ${path}): ${e.cause?.code ?? e.message}. Check the connection and retry.`));
+    const offline = res instanceof Error;
+    if (attempt === 1 && (offline || [502, 503, 504].includes(res.status) || (res.status === 401 && token() !== auth))) {
+      await sleep(1000);
+      continue;
+    }
+    if (offline) throw res;
+    if (!res.ok) throw new Error(await apiError(res, method, path));
+    return res.status === 204 ? null : res.json();
+  }
+}
+
+// The server answers errors with JSON ({detail} or {message}) or, from the gateway, an HTML page.
+async function apiError(res, method, path) {
+  let msg = await res.text();
+  try {
+    const body = JSON.parse(msg);
+    msg = body.detail ?? body.message ?? body.error ?? msg;
+    if (typeof msg !== 'string') msg = JSON.stringify(msg);
+  } catch {}
+  msg = msg.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+  const hint = {
+    401: ` The session was rejected. ${OPEN_APP}`,
+    409: ' The data changed on the server after it was read, so nothing was written. Retry.',
+  }[res.status] ?? '';
+  return `Wispr Flow API ${method} ${path} failed with ${res.status}${msg && `: ${msg}`}.${hint}`;
 }
 
 // Notes, todos and meetings share one sync protocol: POST changed items, get back every
@@ -64,10 +99,13 @@ const now = () => String(Date.now());
 
 const text = (value) => ({ content: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value, null, 2) }] });
 const fail = (message) => ({ ...text(message), isError: true });
-const word = z.string().trim().min(1).max(255);
+const word = z.string().trim()
+  .min(1, 'is blank')
+  .max(255, 'is longer than 255 characters')
+  .regex(/^[^\p{Cc}]*$/u, 'must be one line with no control characters');
 const id = z.string().uuid();
 
-const server = new McpServer({ name: 'wispr-flow-write', version: '0.2.0' });
+const server = new McpServer({ name: 'wispr-flow-write', version: '0.3.0' });
 
 // ---- Dictionary and snippets: one list, snippets are items with is_snippet set.
 
@@ -82,24 +120,35 @@ function newItem(word, replacement, isSnippet) {
   };
 }
 
-// Words the dictionary already holds are skipped; previously deleted ones are revived
-// in place, since the app keys items on word + team.
-async function addWords(entries, isSnippet = false) {
-  const byWord = new Map((await personalItems()).map((i) => [i.word, i]));
+const kind = (i) => (i.is_snippet ? 'snippet' : 'word');
+const similar = (items, target) => items.filter((i) => i.word.toLowerCase().includes(target.toLowerCase())).slice(0, 5).map((i) => i.word);
+
+// A word the dictionary already holds in any casing is skipped, and so is a repeat within
+// one request. A deleted item with the exact word is revived in place, since the app keys
+// items on word + team.
+async function addWords(entries, isSnippet = false, dryRun = false) {
+  const items = await personalItems();
+  const live = new Map(items.filter((i) => !i.is_deleted).map((i) => [i.word.toLowerCase(), i]));
+  const deleted = new Map(items.filter((i) => i.is_deleted).map((i) => [i.word, i]));
   const now = new Date().toISOString();
   const changes = [];
   const skipped = [];
   for (const { word, replacement } of entries) {
-    const existing = byWord.get(word);
-    if (existing && !existing.is_deleted) { skipped.push(word); continue; }
-    const item = existing
-      ? { ...existing, is_deleted: false, is_manual: true, is_snippet: isSnippet, replacement: replacement ?? null, modified_at: now }
+    const existing = live.get(word.toLowerCase());
+    if (existing) {
+      const as = existing.word === word ? '' : ` as "${existing.word}"`;
+      skipped.push(changes.includes(existing) ? `${word} (repeated in input)` : `${word} (already a ${kind(existing)}${as})`);
+      continue;
+    }
+    const old = deleted.get(word);
+    const item = old
+      ? { ...old, is_deleted: false, is_manual: true, is_snippet: isSnippet, replacement: replacement ?? null, modified_at: now }
       : newItem(word, replacement, isSnippet);
-    byWord.set(word, item);
+    live.set(word.toLowerCase(), item);
     changes.push(item);
   }
-  if (changes.length) await api('POST', '/dictionary/personal', changes);
-  return { added: changes.map((i) => i.word), skipped };
+  if (changes.length && !dryRun) await api('POST', '/dictionary/personal', changes);
+  return { [dryRun ? 'would_add' : 'added']: changes.map((i) => i.word), skipped };
 }
 
 async function listItems(query, snippets) {
@@ -118,28 +167,49 @@ server.registerTool('list_words', {
 
 server.registerTool('add_word', {
   description: 'Add a word to the Wispr Flow personal dictionary, optionally with a replacement that Flow writes instead.',
-  inputSchema: { word, replacement: z.string().max(255).optional() },
+  inputSchema: { word, replacement: z.string().trim().min(1, 'is blank').max(255, 'is longer than 255 characters').optional() },
 }, async (entry) => text(await addWords([entry])));
 
 server.registerTool('bulk_add', {
-  description: 'Add many words to the Wispr Flow personal dictionary in one request. Existing words are skipped.',
-  inputSchema: { words: z.array(word).min(1).max(1000) },
-}, async ({ words }) => text(await addWords(words.map((w) => ({ word: w })))));
+  description: 'Add many words to the Wispr Flow personal dictionary in one request. Blank and invalid entries, repeats, and words already present in any casing are skipped and listed. dry_run reports the outcome without writing.',
+  inputSchema: { words: z.array(z.string()).min(1).max(1000), dry_run: z.boolean().optional() },
+}, async ({ words, dry_run }) => {
+  // Validate per word, so one bad line in a pasted list doesn't fail the whole request.
+  const parsed = words.filter((w) => w.trim()).map((w) => ({ raw: w, ...word.safeParse(w) }));
+  const invalid = parsed.filter((p) => !p.success).map((p) => `${p.raw.slice(0, 60)} (${p.error.issues[0].message})`);
+  const result = await addWords(parsed.filter((p) => p.success).map((p) => ({ word: p.data })), false, dry_run);
+  return text({ ...result, skipped: [...invalid, ...result.skipped] });
+});
+
+server.registerTool('find_word', {
+  description: 'Check whether a word or snippet trigger is in the Wispr Flow personal dictionary, ignoring case. Shows the stored spelling and replacement; when absent, lists up to 5 entries containing it.',
+  inputSchema: { word },
+}, async ({ word: target }) => {
+  const live = (await personalItems()).filter((i) => !i.is_deleted);
+  const matches = live.filter((i) => i.word.toLowerCase() === target.toLowerCase());
+  if (!matches.length) return text({ found: false, similar: similar(live, target) });
+  return text({ found: true, matches: matches.map((i) => ({ word: i.word, type: kind(i), replacement: i.replacement ?? undefined })) });
+});
 
 server.registerTool('remove_word', {
   description: 'Remove a word or snippet from the Wispr Flow personal dictionary. Exact match first, then a unique case-insensitive match.',
   inputSchema: { word },
 }, async ({ word: target }) => {
   const live = (await personalItems()).filter((i) => !i.is_deleted);
+  // Several exact matches are duplicates of one word, so they all go.
   let matches = live.filter((i) => i.word === target);
   if (!matches.length) matches = live.filter((i) => i.word.toLowerCase() === target.toLowerCase());
-  if (matches.length !== 1) {
-    const reason = matches.length ? `matches ${matches.map((i) => i.word).join(', ')}; pass the exact word` : 'is not in the dictionary';
-    return fail(`"${target}" ${reason}.`);
+  if (matches.length > 1 && matches[0].word !== target) {
+    return fail(`"${target}" matches ${matches.map((i) => i.word).join(', ')}. Pass the exact word.`);
+  }
+  if (!matches.length) {
+    const near = similar(live, target);
+    return fail(`"${target}" is not in the dictionary.${near.length ? ` Similar: ${near.join(', ')}.` : ''}`);
   }
   // Soft delete with a newer modified_at, which is how the app deletes and what its sync propagates.
-  await api('POST', '/dictionary/personal', [{ ...matches[0], is_deleted: true, modified_at: new Date().toISOString() }]);
-  return text({ removed: matches[0].word });
+  const modified_at = new Date().toISOString();
+  await api('POST', '/dictionary/personal', matches.map((i) => ({ ...i, is_deleted: true, modified_at })));
+  return text({ removed: matches[0].word, ...(matches.length > 1 && { duplicates_removed: matches.length - 1 }) });
 });
 
 server.registerTool('list_snippets', {

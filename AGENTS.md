@@ -12,7 +12,7 @@ Write-side MCP server for Wispr Flow. The official Wispr Flow MCP reads; this on
 
 ## Testing against the live API
 
-There is no test suite; the API is the test. When you change a tool, run it through an MCP stdio client against your own account, then undo it:
+`npm test` runs the server against a fake dictionary API and covers input handling, dedupe, retries and error messages. It cannot tell you whether the real API accepts a payload, so the live API stays the test for that. When you change a tool, run it through an MCP stdio client against your own account, then undo it:
 
 1. Snapshot the surface first (GET, or a sync pull with `last_sync_time: "0"`).
 2. Write, read back, then restore. Mark test data with a string you can grep for.
@@ -22,7 +22,7 @@ There is no test suite; the API is the test. When you change a tool, run it thro
 
 | Tools | Endpoint |
 |---|---|
-| `list_words`, `add_word`, `bulk_add`, `remove_word`, `list_snippets`, `add_snippet` | `/api/v1/dictionary/personal` |
+| `list_words`, `find_word`, `add_word`, `bulk_add`, `remove_word`, `list_snippets`, `add_snippet` | `/api/v1/dictionary/personal` |
 | `get_preferences`, `update_preferences` | `/api/v1/user/preferences` (409 when `modified_at` is stale) |
 | `list_transforms`, `set_transform`, `remove_transform` | `/api/v1/user_context` (`polish_prompts`) |
 | `list_notes`, `add_note`, `update_note`, `delete_note` | `/api/v1/notes/sync` |

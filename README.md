@@ -16,7 +16,7 @@ This server fills that gap. Every tool talks to the same endpoint the Wispr Flow
 |---|---|---|
 | Meetings, calendar | Read | Rename, replace notes |
 | Scratchpad notes | Read | List, add, edit, delete |
-| Personal dictionary | No | List, add, bulk add, remove |
+| Personal dictionary | No | List, find, add, bulk add (with dry run), remove |
 | Snippets | No | List, add, remove |
 | Styles, polish instructions, languages, other synced settings | No | Read, change |
 | Custom transforms | No | List, create or edit, remove |
@@ -32,9 +32,10 @@ Run both side by side: the official server to find things, this one to change th
 | Tool | Input | What it does |
 |---|---|---|
 | `list_words` | `query?` | Lists personal dictionary words (not snippets), optionally filtered by a case-insensitive substring. Replacements show as `word -> replacement`. |
-| `add_word` | `word`, `replacement?` | Adds a word. With `replacement`, Flow writes the replacement when it hears the word. Words already present are skipped. |
-| `bulk_add` | `words[]` (up to 1000) | Adds many words in one request. Words already present are skipped. |
-| `remove_word` | `word` | Removes a word or snippet. Tries an exact match first, then a case-insensitive match; if that is ambiguous it refuses and lists the candidates. |
+| `find_word` | `word` | Says whether a word or snippet trigger is in the dictionary, ignoring case, with its stored spelling and replacement. When it is absent, lists up to 5 entries that contain it. |
+| `add_word` | `word`, `replacement?` | Adds a word. With `replacement`, Flow writes the replacement when it hears the word. A word already present in any casing is skipped, and the result names the stored spelling. |
+| `bulk_add` | `words[]` (up to 1000), `dry_run?` | Adds many words in one request. Blank lines are dropped; repeats within the list, words already present in any casing, and invalid entries are skipped and listed with the reason. With `dry_run: true` it reports what it would add and writes nothing. |
+| `remove_word` | `word` | Removes a word or snippet. Tries an exact match first, then a case-insensitive match; if that is ambiguous it refuses and lists the candidates. Exact duplicates are removed together. |
 | `list_snippets` | `query?` | Lists snippets as `trigger -> expansion`. |
 | `add_snippet` | `trigger`, `expansion` | Adds a snippet: say the trigger, Flow types the expansion. |
 | `get_preferences` | | Shows your synced preferences. |
@@ -116,6 +117,24 @@ claude plugin validate . --strict
 claude --plugin-dir .
 ```
 
+## Usage
+
+Ask your agent in plain language. For example:
+
+- "Flow keeps writing 'whisper flow'. Add Wispr Flow to my dictionary."
+- "Here are 200 names from my contacts. Dry-run a bulk add first, then add the ones that aren't there yet."
+- "Is Kubernetes in my Flow dictionary?"
+- "Add a snippet: when I say 'my calendar link', type https://cal.com/me."
+- "Switch my email style to formal."
+
+Words are single-line, up to 255 characters. Matching ignores case, so `github` is reported as already present when you have `GitHub`. To change a word's casing, remove it and add it again.
+
+## Errors and retries
+
+Errors say what to do next: an expired or rejected session asks you to open the Wispr Flow app, and an API error shows the status and the server's message.
+
+Each request is retried once when a retry can help: a network failure, a 502, 503 or 504, or a 401 sent with a token the app has since replaced. Every write is keyed by item id or replaces a whole record, so a retried write that already landed changes nothing. Requests time out after 30 seconds. A 409 on `update_preferences` (the preferences changed after they were read) is reported, not retried.
+
 ## Seeing changes in the app
 
 - **Dictionary and snippets**: the app syncs these when it starts, after an edit in the app, and when you press **Refresh** on the Dictionary page. It does not poll. Press Refresh or restart Flow.
@@ -155,6 +174,14 @@ Deletes are soft (`is_deleted: true` with a newer `modified_at`), which is how t
 Meeting edits resend the fields the app itself pushes, copied from the server's copy, so only the title or notes change. Transcripts, sharing, and deleting meetings stay in the app.
 
 Because this relies on undocumented endpoints, a Wispr Flow update can break it. If that happens, open an issue with your app version.
+
+## Development
+
+```sh
+npm test
+```
+
+The tests start the server over stdio and point it at a fake dictionary API on localhost (through the `WISPR_FLOW_API` and `WISPR_FLOW_SESSION` environment variables), so they run offline and never touch your account. For changes to how the server talks to the real API, also follow the live testing steps in `AGENTS.md`.
 
 ## License
 
