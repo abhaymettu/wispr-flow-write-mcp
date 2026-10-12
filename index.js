@@ -79,10 +79,16 @@ async function apiError(res, method, path) {
 async function pullAll(path, listKey, body, reqCursor, resCursor) {
   const items = [];
   let cursor = null;
+  const seen = new Set();
   do {
     const page = await api('POST', path, { ...body, last_sync_time: '0', hard_refresh: false, ...(cursor && { [reqCursor]: cursor }) });
+    if (!Array.isArray(page?.[listKey])) throw new Error(`Unexpected Wispr Flow sync response: ${listKey} is not an array.`);
     items.push(...page[listKey]);
     cursor = page[resCursor] ?? null;
+    if (cursor !== null) {
+      if (seen.has(cursor) || seen.size >= 1000) throw new Error("Wispr Flow sync pagination did not finish. No changes were written; retry later.");
+      seen.add(cursor);
+    }
   } while (cursor);
   return items;
 }
@@ -242,8 +248,10 @@ function merge(base, patch) {
 }
 
 server.registerTool('update_preferences', {
-  description: 'Change Wispr Flow synced preferences. Only the fields given change; nested objects merge. Styles apply per context (personal = messages, work = Slack/Teams, email, other). polish_instructions.custom maps your own instruction text to on/off; set one to null to delete it.',
+  description: 'Change Wispr Flow synced preferences. dry_run previews without writing. privacy_mode and share_data are inverses; contradictory values are rejected. Only the fields given change; nested objects merge. Styles apply per context (personal = messages, work = Slack/Teams, email, other). polish_instructions.custom maps your own instruction text to on/off; set one to null to delete it.',
   inputSchema: {
+    dry_run: z.boolean().optional().describe('Preview the exact merged preferences without writing.'),
+    personalizationOnboardingCompleted: z.boolean().optional().describe('Styles are used only after personalization onboarding is complete. Set true explicitly to enable configured styles.'),
     personalization_styles: z.object({ personal: style, work: style, email: style, other: style }).partial().optional(),
     polish_instructions: z.object({
       default: z.record(z.string(), z.boolean()),
@@ -263,12 +271,28 @@ server.registerTool('update_preferences', {
       notetaker_auto_share_notes_type: z.enum(['all', 'calendar_notice']),
     }).partial().optional(),
   },
-}, async (patch) => {
+}, async ({ dry_run = false, ...patch }) => {
+  if (patch.privacy_mode !== undefined && patch.share_data !== undefined && patch.privacy_mode === patch.share_data) {
+    return fail('privacy_mode and share_data must be opposites. Nothing was written.');
+  }
+  if (patch.privacy_mode !== undefined) patch.share_data = !patch.privacy_mode;
+  else if (patch.share_data !== undefined) patch.privacy_mode = !patch.share_data;
+  if (!Object.keys(patch).length) return fail('Provide at least one preference to change. Nothing was written.');
   const current = await api('GET', '/user/preferences');
   const preferences = merge(current.preferences, JSON.parse(JSON.stringify(patch)));
+  if (dry_run) return text({ dry_run: true, would_write: { preferences, modified_at: current.modified_at } });
   // modified_at must match the server's; a newer server copy returns 409 and nothing is written.
   await api('POST', '/user/preferences', { preferences, modified_at: current.modified_at });
   return text(preferences);
+});
+
+// Reading this context never sends text for transcription or changes the user's samples.
+server.registerTool('get_user_context', {
+  description: 'Read Wispr Flow writing samples and custom transform prompts. These are private writing content, not model weights. This does not run transcription or change anything.',
+  inputSchema: {},
+}, async () => {
+  const context = await api('GET', '/user_context');
+  return text({ writing_samples: context?.writing_samples ?? null, polish_prompts: context?.polish_prompts ?? null });
 });
 
 // ---- Transforms: custom prompts stored in user_context.polish_prompts, one per slot.

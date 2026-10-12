@@ -39,7 +39,8 @@ Run both side by side: the official server to find things, this one to change th
 | `list_snippets` | `query?` | Lists snippets as `trigger -> expansion`. |
 | `add_snippet` | `trigger`, `expansion` | Adds a snippet: say the trigger, Flow types the expansion. |
 | `get_preferences` | | Shows your synced preferences. |
-| `update_preferences` | any of the fields below | Changes only the fields given; nested objects merge. |
+| `get_user_context` | | Reads writing samples and custom transform prompts without changing them. |
+| `update_preferences` | fields below, `dry_run?` | Changes only the fields given; nested objects merge. Dry run previews the exact payload without writing. |
 | `list_transforms` | | Lists your custom transforms. |
 | `set_transform` | `name`, `prompt` | Creates a transform, or replaces the prompt of the one with that name. Up to 9. |
 | `remove_transform` | `name` | Deletes a transform. |
@@ -56,11 +57,15 @@ Run both side by side: the official server to find things, this one to change th
 
 `update_preferences` accepts:
 
+- `personalizationOnboardingCompleted`: explicit true/false. The app uses configured styles only after this is true; the server never enables it implicitly.
 - `personalization_styles`: `personal` (messages), `work` (Slack, Teams), `email`, `other`, each one of `formal`, `casual`, `veryCasual`, `excited`, `default`.
 - `polish_instructions`: `{ default: { label: on/off }, custom: { "your instruction": on/off } }`. Set a custom instruction to `null` to delete it.
 - `output_languages` (codes such as `["en", "es"]`), `auto_cleanup_level` (`none`, `light`, `medium`, `high`, `full`).
-- `privacy_mode`, `share_data`, `cloud_sync`, `teammates_added_digest_enabled`.
+- `privacy_mode` and `share_data` are inverse views of one training-data choice. Setting either automatically sets the other to its opposite; contradictory input is rejected before any request. Neither turns transcription into offline processing.
+- `cloud_sync`, `teammates_added_digest_enabled`.
 - `notetaker_transcript_retention` and `notetaker_preference` (default note visibility, calendar notice, auto-share).
+
+Dictation cloud storage, model improvement, local history, and Notetaker retention are separate controls. Privacy Mode is not a blanket no-storage switch. Organization and BAA settings can enforce stricter choices; this server cannot override those.
 
 Turning `cloud_sync` off also stops this server's changes from reaching the app. The data-retention policy (`local_data_policy`) is not exposed, because changing it makes the app delete local history.
 
@@ -140,6 +145,10 @@ Each request is retried once when a retry can help: a network failure, a 502, 50
 - **Dictionary and snippets**: the app syncs these when it starts, after an edit in the app, and when you press **Refresh** on the Dictionary page. It does not poll. Press Refresh or restart Flow.
 - **Notes, todos, meetings, preferences**: the app pulls these on its own sync cycle, so they show up without doing anything.
 - **Transforms**: the app loads them when it starts. Restart Flow to see a change.
+
+## Reverse-engineering review
+
+The October 8 review used REA static analysis and the installed Wispr Flow 1.6.1102 bundle. See [findings and changes](docs/WISPR-REVIEW-20261008.md) for scope, evidence, limits, and tests. No vendor code is included. Native integrity and live service behavior were not validated.
 
 ## Where the token comes from
 

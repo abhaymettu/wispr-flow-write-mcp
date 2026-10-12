@@ -29,3 +29,16 @@ Write-side MCP server for Wispr Flow. The official Wispr Flow MCP reads; this on
 | `list_todos`, `add_todo`, `update_todo`, `delete_todo` | `/api/v1/todos/sync` |
 | `update_meeting` | `/api/v1/meetings/sync` |
 | `update_profile` | `/api/v1/user/profile` |
+
+## Excuses that break these rules
+
+| Excuse | Reality |
+|---|---|
+| "The rule did not mention this case." | The rule names the failure mode, not the case. When unsure, ask; do not re-interpret. |
+| "The test expected the old value, so I updated it." | Updating an expectation to match new output is how regressions get blessed. Stop and report. |
+| "It passed on my run." | One green run is an anecdote; a flaky pass is a failure until explained. |
+| "The fix was small, so I bundled it." | Unrelated changes in one commit hide the one that broke it. |
+| "I cleaned up the surrounding code while I was there." | Drive-by edits double the review surface. |
+| "Documenting the deviation would slow things down." | An undocumented deviation is invisible to the next session. |
+| "The suppression is just this once." | A suppression without a reason and an expiry is permanent. |
+| "Nobody reads the runlog anyway." | The next session starts from it; skip it and the work gets relitigated. |
